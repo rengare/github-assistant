@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 
-import GitHub from 'github-api';
-import log from 'loglevel';
+import * as yargs from 'yargs';
+import * as GitHub from 'github-api';
+import * as log from 'loglevel';
 import releaseNotes from './utils/release-notes';
 
-const argv = require('yargs')
+const argv = yargs
     .usage('Usage: $0 [options]')
     .option('repo', {
         alias: 'r',
@@ -24,7 +25,7 @@ const argv = require('yargs')
     .option('gh-token-env-var', {
         description: 'Environment variable name for GitHub access token',
         type: 'string',
-        'default': 'GH_TOKEN'
+        'default': null
     })
     .option('gh-api-base-url', {
         description: 'Base URL of the GitHub API',
@@ -59,32 +60,42 @@ const argv = require('yargs')
     .help()
     .argv;
 
-const gh = new GitHub({
-    token: process.env[argv['gh-token-env-var']]
-}, argv['gh-api-base-url']);
+run();
 
-const repoName = argv.repo.split('/');
-const ghRepo = gh.getRepo(repoName[0], repoName[1]);
+async function run() {
+    const gh = new GitHub({
+        token: argv['gh-token-env-var'] || process.env['REPO_TOKEN']
+    }, argv['gh-api-base-url']);
 
-releaseNotes(ghRepo, argv)
-    .then(notes => {
-        log.info('\nRelease Notes:\n', notes);
+    const [user, repoName] = argv.repo.split('/');
+
+    const repo = gh.getRepo(user, repoName);
+
+    try {
+        const notes = await releaseNotes(repo, argv);
+
+        log.info(notes);
+
         if (!argv['dry-run']) {
-            ghRepo.createRelease({
-                'tag_name': argv.tag,
-                'target_commitish': argv.branch,
-                'name': `Release ${argv.tag}`,
-                'body': notes,
-                'prerelease': argv.prerelease
-            })
-                .then(resp => {
-                    log.info('\nCreated release:', resp.data.id, resp.data.name, '\n\n');
-                })
-                .catch(e => {
-                    log.error(e);
-                });
+            await release(repo, notes)
         }
+    }
+    catch (e) {
+        log.error(`❌ ---> Error: ${e}`)
+    }
+}
+
+async function release(repo: any, notes: any) {
+    const tag = (argv.tag as string).includes('v') ? argv.tag : `v${argv.tag}`;
+
+    const response = await repo.createRelease({
+        'tag_name': tag,
+        'target_commitish': argv.branch,
+        'name': `Release ${tag}`,
+        'body': notes,
+        'draft': false,
+        'prerelease': argv.prerelease
     })
-    .catch(e => {
-        log.error(e);
-    });
+
+    log.info('\nCreated release:', response.data.id, response.data.name, '\n\n');
+}
