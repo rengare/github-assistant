@@ -1,7 +1,7 @@
 import * as yargs from 'yargs';
 
 export function buildArgvOptions(): {} {
-    return yargs
+    const argv = yargs
         .usage('Usage: $0 [options]')
         .option('repo', {
             alias: 'r',
@@ -55,4 +55,7 @@ export function buildArgvOptions(): {} {
         .version(false)
         .help()
         .argv;
+
+    argv.tag = argv.tag.replace('v', '');
+    return argv;
 }
