@@ -4,9 +4,9 @@ async function createRelease(repo, argv, notes: string): Promise<void> {
     console.info(notes);
 
     const response = await repo.createRelease({
-        'tag_name': `${argv.tag}`,
+        'tag_name': `v${argv.tag}`,
         'target_commitish': argv.branch,
-        'name': `Release ${argv.tag}`,
+        'name': `Release v${argv.tag}`,
         'body': notes,
         'draft': false,
         'prerelease': argv.prerelease
