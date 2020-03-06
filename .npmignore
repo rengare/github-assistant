@@ -3,3 +3,4 @@ scripts
 src
 ci-scripts
 .github
+.vscode
