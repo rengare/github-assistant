@@ -24,9 +24,11 @@ export async function release(repo, argv, notes: string): Promise<void> {
     const tagWithoutV = tag.replace('v', '');
 
     const response: { data: Release[] } = await repo.listReleases();
-
+    
     const isReleaseExist = response.data
-        .some(release => release.tag_name.includes(tagWithoutV))
-
+    .some(release => release.tag_name.includes(tagWithoutV))
+    
+    // if release exist and code tries to create same release 
+    // then github api throws error code 422: unprocessable entity
     isReleaseExist ? onReleaseExist() : createRelease(repo, argv, notes, tag);
 }
