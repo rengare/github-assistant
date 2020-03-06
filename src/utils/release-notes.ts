@@ -1,60 +1,17 @@
-import * as log from 'loglevel';
+import { Message, Hash, FilteredCommit, Pr, GithubCommit } from './data.types';
 
-class Message {
-    fixes: string[] = [];
-    features: string[] = [];
-    docs: string[] = [];
-
-    constructor(init?: Partial<Message>) {
-        init && Object.assign(this, init);
-    }
-}
-
-interface FilteredCommits {
-    sha: string
-    url: string
-    message: string
-    prNumber: number | null
-}
-
-interface GithubCommit {
-    author: any;
-    comments_url: string;
-    commit: {
-        message: string,
-        url: string
-    };
-    commiter: any;
-    html_url: string;
-    node_id: string;
-    parents: any[];
-    sha: string;
-    url: string;
-}
-
-interface Pr {
-    number: number,
-    html_url: string
-}
-
-interface Hash {
-    [details: string]: string;
-}
-
-function buildCommitMessage(commit: any, pullRequests: any): string {
+function buildCommitMessage(commit: FilteredCommit, pullRequests: Hash): string {
     const template = (msg, sha, url, prNumber, prUrl): string => {
-        log.debug('\nTemplate\n', msg, sha, url, prNumber, prUrl);
         return `${msg}${prNumber ? ` ([#${prNumber}](${prUrl}))` : ''} ([${sha}](${url}))`;
     };
 
     let message = commit.message;
-    log.debug('\nRaw Message\n', message);
     let pos = message.indexOf(':');
     if (pos !== -1) {
         message = message.substring(pos + 1).trim();
     }
 
-    if (message.match(/BREAKING CHANGE\:/)) {
+    if (message.match(/BREAKING CHANGE:/)) {
         message = `**BREAKING CHANGE:** ${message}`;
     }
 
@@ -70,17 +27,17 @@ function buildCommitMessage(commit: any, pullRequests: any): string {
         commit.prNumber,
         pullRequests[`pr_${commit.prNumber}`]
     );
-};
+}
 
-function buildMessages(commits: any[], pr: Hash, hideDocs: boolean): Message {
+function buildMessages(commits: FilteredCommit[], pr: Hash, hideDocs: boolean): Message {
     return new Message({
         fixes: commits.filter(x => x.message.match(/^fix/)).map(x => buildCommitMessage(x, pr)),
         features: commits.filter(x => x.message.match(/^feat/)).map(x => buildCommitMessage(x, pr)),
         docs: !hideDocs ? commits.filter(x => x.message.match(/^docs/)).map(x => buildCommitMessage(x, pr)) : [],
     });
-};
+}
 
-function buildReleaseNotes(messages: Message) {
+function buildReleaseNotes(messages: Message): string {
     let notes: string[] = [];
 
     if (messages.features.length > 0) {
@@ -99,19 +56,25 @@ function buildReleaseNotes(messages: Message) {
     }
 
     return notes.join('\n');
-};
+}
 
-function getVersionCommitRegEx(prerelease) {
+function getVersionCommitRegEx(prerelease): RegExp {
     return (
         prerelease
-            ? /^chore\(release\):\sversion\s\d+\.\d+\.\d+(\s|\-\w+\.\d+)/
+            ? /^chore\(release\):\sversion\s\d+\.\d+\.\d+(\s|-\w+\.\d+)/
             : /^chore\(release\):\sversion\s\d+\.\d+\.\d+\s/
     );
-};
+}
+async function getCommitsFromGithub(repo, tag: string, prerelease: boolean): Promise<FilteredCommit[]> {
+    const resp: { data: GithubCommit[] } = (await repo.listCommits({ sha: tag }))
+    const commits = resp.data;
+    // eslint-disable-next-line @typescript-eslint/no-use-before-define
+    return await filterCommits(commits, repo, prerelease);
+}
 
-async function filterCommits(commits: GithubCommit[], repo: any, prerelease: boolean): Promise<FilteredCommits[]> {
+async function filterCommits(commits: GithubCommit[], repo: {}, prerelease: boolean): Promise<FilteredCommit[]> {
 
-    let filteredCommits: FilteredCommits[] = [];
+    const FilteredCommit: FilteredCommit[] = [];
 
     let foundPreviousVersionCommit = false;
     let sha;
@@ -120,7 +83,6 @@ async function filterCommits(commits: GithubCommit[], repo: any, prerelease: boo
     for (let i = 1; i < commits.length; i++) {
         sha = commits[i].sha;
         const message = commits[i].commit.message;
-        log.debug('\nRaw Commit Message\n', message);
 
         // continue gathering commit messages until the previous version commit is found
         if (message.match(getVersionCommitRegEx(prerelease))) {
@@ -133,12 +95,12 @@ async function filterCommits(commits: GithubCommit[], repo: any, prerelease: boo
             continue;
         }
 
-        let prMatch = message.match(/\(\#\d+\)/);
+        let prMatch = message.match(/\(#\d+\)/);
         if (prMatch) {
             prMatch = prMatch[0].match(/\d+/);
         }
 
-        filteredCommits.push({
+        FilteredCommit.push({
             sha: sha,
             url: commits[i].html_url,
             message: message,
@@ -149,18 +111,11 @@ async function filterCommits(commits: GithubCommit[], repo: any, prerelease: boo
     // if the number of commits is 0 or 1, we have exhausted ALL commits
     // so it's time to return regardless of whether we found a match or not
     if (!foundPreviousVersionCommit && commits.length > 1) {
-        log.debug('Making recursive call - filtered commits count:', filteredCommits.length);
-        let moreCommits = await getCommitsFromGithub(repo, sha, prerelease)
-        return filteredCommits.concat(moreCommits)
+        const moreCommits = await getCommitsFromGithub(repo, sha, prerelease)
+        return FilteredCommit.concat(moreCommits)
     }
 
-    return filteredCommits;
-}
-
-async function getCommitsFromGithub(repo: any, tag: string, prerelease: boolean): Promise<FilteredCommits[]> {
-    const resp: { data: GithubCommit[] } = (await repo.listCommits({ sha: tag }))
-    const commits = resp.data;
-    return await filterCommits(commits, repo, prerelease);
+    return FilteredCommit;
 }
 
 async function getPullRequest(repo, prNumber): Promise<Hash> {
@@ -168,7 +123,7 @@ async function getPullRequest(repo, prNumber): Promise<Hash> {
     return { [`pr_${pr.data.number}`]: pr.data.html_url }
 }
 
-async function getPrsInHash(repo: any, commits: FilteredCommits[]): Promise<Hash> {
+async function getPrsInHash(repo, commits: FilteredCommit[]): Promise<Hash> {
     return (await Promise
         .all(commits.filter(commit => !!commit.prNumber)
             .map(commit =>
@@ -177,9 +132,9 @@ async function getPrsInHash(repo: any, commits: FilteredCommits[]): Promise<Hash
         .reduce((hash, current) => Object.assign(hash, current), {});
 }
 
-export default async function releaseNotes(repo: any, { tag = '', prerelease = false, hideDocs = false, debug = false }: any): Promise<string> {
-    const commits: FilteredCommits[] = await getCommitsFromGithub(repo, tag, prerelease);
+export default async function releaseNotes(repo, { tag = '', prerelease = false, hideDocs = false }): Promise<string> {
+    const commits: FilteredCommit[] = await getCommitsFromGithub(repo, tag, prerelease);
     const prs = await getPrsInHash(repo, commits);
     const messages = buildMessages(commits, prs, hideDocs);
     return buildReleaseNotes(messages);
-};
+}
